@@ -17,14 +17,31 @@ class RuleEngine:
     def get_rules(self) -> List[Dict[str, Any]]:
         return self.db.get_all_rules()
 
+    @staticmethod
+    def _clean_str(s: str) -> str:
+        return "".join(c for c in s.lower() if c.isalnum())
+
     def match_rules(self, text: str) -> List[Dict[str, Any]]:
         if not text:
             return []
 
         text_lower = text.lower()
+        text_clean = self._clean_str(text)
         all_rules = self.get_rules()
         matched = []
+
         for rule in all_rules:
-            if rule["keyword"].lower() in text_lower:
+            kw_lower = rule["keyword"].lower()
+            kw_clean = self._clean_str(rule["keyword"])
+
+            # 1. Strict case-insensitive substring match
+            if kw_lower and kw_lower in text_lower:
                 matched.append(rule)
+                continue
+
+            # 2. Normalized alphanumeric match (removes spaces, dots, hyphens, underscores)
+            if kw_clean and kw_clean in text_clean:
+                matched.append(rule)
+                continue
+
         return matched

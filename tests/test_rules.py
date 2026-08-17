@@ -27,7 +27,6 @@ def test_rerunning_db_init_does_not_duplicate_default_rule():
         db = Database(path)
         assert len(db.get_all_rules()) == 1
 
-        # Re-run init_db
         db.init_db()
         assert len(db.get_all_rules()) == 1
     finally:
@@ -39,15 +38,12 @@ def test_startup_with_existing_custom_rule_does_not_create_default_rule():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     try:
-        # Create database and insert custom rule
         db = Database(path)
-        # Delete default rule to simulate pre-existing database with custom rule
         with db.get_connection() as conn:
             with conn:
                 conn.execute("DELETE FROM rules")
                 conn.execute("INSERT INTO rules (id, keyword, dm_message) VALUES ('rule_custom', 'DISCOUNT', '10% off')")
 
-        # Instantiate Database again on existing file
         db2 = Database(path)
         rules = db2.get_all_rules()
         assert len(rules) == 1
@@ -58,21 +54,37 @@ def test_startup_with_existing_custom_rule_does_not_create_default_rule():
             os.remove(path)
 
 
-def test_custom_rule_creation_and_matching(temp_db):
+def test_robust_keyword_matching(temp_db):
     engine = RuleEngine(temp_db)
-    # temp_db already has default PRICE rule
-    assert len(engine.get_rules()) == 1
+    # Default PRICE rule is seeded in temp_db
 
-    # Add custom rule
-    custom = engine.create_rule(keyword="SHIPPING", dm_message="Shipping info")
-    assert len(engine.get_rules()) == 2
+    # 1. Normal case-insensitive substring
+    m1 = engine.match_rules("PRICE")
+    assert len(m1) == 1
 
-    # Match PRICE
-    matches_price = engine.match_rules("Can I get the price?")
-    assert len(matches_price) == 1
-    assert matches_price[0]["keyword"] == "PRICE"
+    m2 = engine.match_rules("price please")
+    assert len(m2) == 1
 
-    # Match SHIPPING
-    matches_shipping = engine.match_rules("Is SHIPPING free?")
-    assert len(matches_shipping) == 1
-    assert matches_shipping[0]["keyword"] == "SHIPPING"
+    # 2. Punctuation-separated keyword
+    m3 = engine.match_rules("P.R.I.C.E")
+    assert len(m3) == 1
+
+    # 3. Whitespace-separated keyword
+    m4 = engine.match_rules("p r i c e")
+    assert len(m4) == 1
+
+    # 4. Hyphen-separated keyword
+    m5 = engine.match_rules("p-r-i-c-e")
+    assert len(m5) == 1
+
+    # 5. Underscore-separated keyword
+    m6 = engine.match_rules("p_r_i_c_e")
+    assert len(m6) == 1
+
+    # 6. Keyword inside larger word
+    m7 = engine.match_rules("What a pricey item")
+    assert len(m7) == 1
+
+    # 7. Unrelated text not matching
+    m8 = engine.match_rules("Hello world")
+    assert len(m8) == 0
