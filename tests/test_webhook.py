@@ -1,7 +1,7 @@
-import asyncio
 import hashlib
 import hmac
 import pytest
+import app.main as main_mod
 from app.config import settings
 from app.crypto import derive_hmac_secret
 from tests.conftest import TEST_API_KEY
@@ -100,7 +100,7 @@ def test_webhook_duplicate_rule_user_suppression(client):
     assert stats["duplicates_blocked"] == 1
 
 
-def test_webhook_comment_deleted(client):
+def test_webhook_comment_deleted_does_not_cancel_pending_delivery(client, temp_db):
     client.post(
         "/rules", json={"keyword": "PRICE", "dm_message": "Price list..."}
     )
@@ -114,16 +114,36 @@ def test_webhook_comment_deleted(client):
             "from": {"user_id": "usr_del"},
         },
     }
-    client.post("/webhook", json=created_payload)
+    res_created = client.post("/webhook", json=created_payload)
+    assert res_created.json()["deliveries_created"] == 1
 
+    # Verify delivery is pending
+    delivery_before = temp_db.get_delivery_by_idempotency_key("rule:rule_1:user:usr_del")
+    if not delivery_before:
+        # Find by user_id
+        with temp_db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM deliveries WHERE recipient_user_id = 'usr_del'").fetchone()
+            delivery_before = dict(row) if row else None
+    assert delivery_before["status"] == "pending"
+
+    # Send comment.deleted
     deleted_payload = {
         "event_id": "evt_del_test_2",
         "event_type": "comment.deleted",
         "data": {"comment_id": "cmt_to_delete"},
     }
-    res = client.post("/webhook", json=deleted_payload)
-    assert res.status_code == 200
-    assert res.json()["status"] == "ok"
+    res_del = client.post("/webhook", json=deleted_payload)
+    assert res_del.status_code == 200
+    assert res_del.json()["action"] == "comment_deleted_logged"
+
+    # Verify delivery status is STILL pending (NOT cancelled)
+    delivery_after = temp_db.get_delivery_by_idempotency_key(delivery_before["idempotency_key"])
+    assert delivery_after["status"] == "pending"
+
+    # Verify it can still be claimed by the worker
+    claimed = temp_db.claim_pending_deliveries(limit=1)
+    assert len(claimed) == 1
+    assert claimed[0]["id"] == delivery_before["id"]
 
 
 def test_webhook_hmac_enforcement(client):
@@ -135,7 +155,6 @@ def test_webhook_hmac_enforcement(client):
         "sha256=" + hmac.new(secret, payload_bytes, hashlib.sha256).hexdigest()
     )
 
-    # Valid signature
     res1 = client.post(
         "/webhook",
         content=payload_bytes,
@@ -146,7 +165,6 @@ def test_webhook_hmac_enforcement(client):
     )
     assert res1.status_code == 200
 
-    # Invalid signature
     res2 = client.post(
         "/webhook",
         content=payload_bytes,
@@ -161,7 +179,6 @@ def test_webhook_hmac_enforcement(client):
 
 
 def test_concurrent_duplicate_deliveries(temp_db):
-    """Verifies SQLite UNIQUE constraint prevents concurrent duplicate delivery creation."""
     created1 = temp_db.create_delivery(
         delivery_id="del_c1",
         rule_id="r1",

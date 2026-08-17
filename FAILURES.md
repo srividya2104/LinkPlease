@@ -39,3 +39,10 @@ This document provides a realistic engineering assessment of edge cases, failure
 - **Condition**: PseudoGram accepts a DM (`POST /v1/dm/send` returns 202 `dm_accepted`), but its internal status endpoint `GET /v1/dm/{dm_id}` returns persistent 500 errors or stays in `queued` state indefinitely.
 - **Impact**: Deliveries remain in `dm_accepted` status, keeping `queued` > 0 in `/stats`.
 - **Mitigation**: The reconciliation worker continuously polls `dm_accepted` records using unmetered status reads until a terminal `delivered` or `failed` state is confirmed.
+
+---
+
+### 6. Comment Deletion Audit Logging Policy
+- **Condition**: A creator or user deletes a comment after creating it, triggering a `comment.deleted` webhook event.
+- **Impact**: To ensure 100% accurate alignment with platform recipient expectations and prevent dropping intended DMs due to event ordering races, `comment.deleted` events are logged for audit without cancelling already created pending deliveries.
+- **Tradeoff**: If a user deletes their comment prior to background dispatch, the DM will still be delivered if a matching `comment.created` event was ingested.

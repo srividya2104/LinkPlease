@@ -53,14 +53,11 @@ async def handle_webhook(
     # 4. Handle comment.deleted events
     if payload.event_type == "comment.deleted":
         comment_id = payload.data.comment_id
-        cancelled = db.cancel_pending_by_comment_id(comment_id)
         logger.info(
-            "Processed comment.deleted for comment %s (cancelled pending delivery:"
-            " %s)",
+            "Received comment.deleted for comment %s (logged for audit)",
             comment_id,
-            cancelled,
         )
-        return {"status": "ok", "action": "comment_deleted_handled"}
+        return {"status": "ok", "action": "comment_deleted_logged"}
 
     # 5. Handle comment.created events
     if payload.event_type == "comment.created":
