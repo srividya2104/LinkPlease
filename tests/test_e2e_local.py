@@ -2,15 +2,22 @@ import hashlib
 import hmac
 import time
 import pytest
-from app.crypto import derive_hmac_secret
 from app.sender import PseudoGramClient, ReconcileResult, SendResult
 from tests.conftest import TEST_API_KEY
 
 
 @pytest.mark.asyncio
-async def test_full_local_e2e(client, temp_db, monkeypatch):
+async def test_full_local_e2e_from_empty_database(client, temp_db, monkeypatch):
+    """Simulates a fresh Render deployment with an empty database.
+
+    Verifies default PRICE rule auto-seeding, webhook matching, worker
+    dispatch, reconciliation, and final stats.
+    """
+
     # Mock PseudoGram API response for send and status read
-    async def mock_send_dm(self, api_key, recipient_user_id, message, comment_id, idempotency_key):
+    async def mock_send_dm(
+        self, api_key, recipient_user_id, message, comment_id, idempotency_key
+    ):
         return SendResult(status="accepted", dm_id=f"dm_e2e_{recipient_user_id}")
 
     async def mock_get_dm_status(self, api_key, dm_id):
@@ -19,26 +26,27 @@ async def test_full_local_e2e(client, temp_db, monkeypatch):
     monkeypatch.setattr(PseudoGramClient, "send_dm", mock_send_dm)
     monkeypatch.setattr(PseudoGramClient, "get_dm_status", mock_get_dm_status)
 
-    # 1. Create rule
-    rule_res = client.post(
-        "/rules", json={"keyword": "PRICE", "dm_message": "Price list is $100"}
-    )
-    assert rule_res.status_code == 201
+    # 1. Verify default PRICE rule exists without calling POST /rules
+    rules = client.get("/rules").json()
+    assert len(rules) == 1
+    assert rules[0]["rule_id"] == "rule_default_price"
+    assert rules[0]["keyword"] == "PRICE"
 
-    # 2. Trigger webhook
+    # 2. Trigger comment.created webhook matching PRICE
     payload = {
-        "event_id": "evt_e2e_001",
+        "event_id": "evt_fresh_001",
         "event_type": "comment.created",
         "data": {
-            "comment_id": "cmt_e2e_1",
+            "comment_id": "cmt_fresh_1",
             "text": "What is the PRICE?",
-            "from": {"user_id": "usr_e2e_1"},
+            "from": {"user_id": "usr_fresh_1"},
         },
     }
     wh_res = client.post("/webhook", json=payload)
     assert wh_res.status_code == 200
+    assert wh_res.json()["deliveries_created"] == 1
 
-    # Verify pending state
+    # Verify queued state in stats
     stats1 = client.get("/stats").json()
     assert stats1["queued"] == 1
     assert stats1["sent"] == 0

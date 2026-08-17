@@ -94,17 +94,51 @@ class Database:
                     " deliveries(comment_id);"
                 )
 
+                # Seed default assignment rule if rules table is completely empty
+                cursor = conn.execute("SELECT COUNT(*) as cnt FROM rules")
+                if cursor.fetchone()["cnt"] == 0:
+                    conn.execute(
+                        "INSERT INTO rules (id, keyword, dm_message) VALUES (?, ?,"
+                        " ?) ON CONFLICT(id) DO NOTHING",
+                        (
+                            "rule_default_price",
+                            "PRICE",
+                            "Here is the price list. Thank you!",
+                        ),
+                    )
+
     def insert_rule(
         self, rule_id: str, keyword: str, dm_message: str
     ) -> Dict[str, Any]:
         with self.get_connection() as conn:
             with conn:
-                conn.execute(
-                    "INSERT INTO rules (id, keyword, dm_message) VALUES (?, ?,"
-                    " ?)",
-                    (rule_id, keyword, dm_message),
+                cursor = conn.execute(
+                    "SELECT id FROM rules WHERE LOWER(keyword) = LOWER(?)",
+                    (keyword,),
                 )
-        return {"rule_id": rule_id, "keyword": keyword, "dm_message": dm_message}
+                row = cursor.fetchone()
+                if row:
+                    existing_id = row["id"]
+                    conn.execute(
+                        "UPDATE rules SET dm_message = ? WHERE id = ?",
+                        (dm_message, existing_id),
+                    )
+                    return {
+                        "rule_id": existing_id,
+                        "keyword": keyword,
+                        "dm_message": dm_message,
+                    }
+                else:
+                    conn.execute(
+                        "INSERT INTO rules (id, keyword, dm_message) VALUES (?, ?,"
+                        " ?)",
+                        (rule_id, keyword, dm_message),
+                    )
+                    return {
+                        "rule_id": rule_id,
+                        "keyword": keyword,
+                        "dm_message": dm_message,
+                    }
 
     def get_all_rules(self) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
@@ -200,7 +234,6 @@ class Database:
         claimed = []
         with self.get_connection() as conn:
             with conn:
-                # Find matching pending IDs
                 cursor = conn.execute(
                     """
                     SELECT id FROM deliveries
@@ -312,20 +345,17 @@ class Database:
 
     def get_stats(self) -> Dict[str, int]:
         with self.get_connection() as conn:
-            # Query counts grouped by status
             cursor = conn.execute(
                 "SELECT status, COUNT(*) as cnt FROM deliveries GROUP BY status"
             )
             counts = {row["status"]: row["cnt"] for row in cursor.fetchall()}
 
-            # duplicates_blocked
             cursor2 = conn.execute(
                 "SELECT val FROM counters WHERE name = 'duplicates_blocked'"
             )
             dup_row = cursor2.fetchone()
             duplicates_blocked = dup_row["val"] if dup_row else 0
 
-            # 'queued' includes: pending, sending, dm_accepted
             sent = counts.get("sent", 0)
             failed = counts.get("failed", 0)
             queued = (

@@ -21,9 +21,9 @@ This document provides a realistic engineering assessment of edge cases, failure
 ---
 
 ### 3. Non-Persistent Storage on Container Redeployments
-- **Condition**: The application is deployed on stateless container infrastructure (e.g., Render standard instances without persistent disk attachments) and undergoes a deployment or container restart.
-- **Impact**: The local SQLite database file (`linkplease.db`) is replaced with an empty schema. Any in-flight deliveries currently in `pending` or `dm_accepted` state that have not yet been reconciled are lost.
-- **Mitigation**: On ephemeral nodes, production deployments should configure a mounted persistent disk volume or connect to a managed external PostgreSQL instance.
+- **Condition**: The application is deployed on stateless container infrastructure (e.g., Render free instances without persistent disk attachments) and undergoes a deployment, container restart, or cold-boot spin down.
+- **Impact**: The local SQLite database file (`linkplease.db`) is replaced with an empty schema. User-created custom rules and any un-reconciled in-flight deliveries are reset.
+- **Mitigation**: Database initialization automatically auto-seeds the default assignment rule (`rule_default_price`, keyword `PRICE`) upon startup whenever the rules table is empty. For full persistence across redeployments, production deployments should configure a mounted persistent disk volume or connect to a managed external PostgreSQL instance.
 
 ---
 

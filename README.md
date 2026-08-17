@@ -77,6 +77,18 @@ We compare these against our server-side logs. Inflated numbers are worse than h
 
 ---
 
+### Default Assignment Rule & Persistence Strategy
+
+To ensure zero-downtime resilience on ephemeral container deployments (such as Render Web Services where instance restarts or cold boots reset local SQLite files), database initialization automatically seeds the default assignment rule if the `rules` table is empty:
+
+- **Rule ID**: `rule_default_price`
+- **Keyword**: `PRICE`
+- **DM Message**: `Here is the price list. Thank you!`
+
+This auto-seeding is fully idempotent. It runs strictly on an empty database startup and never overwrites user-created rules or duplicates existing rules. Custom rules created via `POST /rules` continue to take priority and function normally.
+
+---
+
 ## The mock API
 
 **Base URL:** `https://pseudogram-api.onrender.com`
