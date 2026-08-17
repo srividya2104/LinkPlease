@@ -5,7 +5,9 @@ load_dotenv()
 
 
 class Settings:
-    API_KEY: str = os.getenv("API_KEY", "")
+    API_KEY: str = os.getenv(
+        "PSEUDOGRAM_API_KEY", os.getenv("API_KEY", "")
+    ).strip()
     PSEUDOGRAM_BASE_URL: str = os.getenv(
         "PSEUDOGRAM_BASE_URL", "https://pseudogram-api.onrender.com"
     ).rstrip("/")
