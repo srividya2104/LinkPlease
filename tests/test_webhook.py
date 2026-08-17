@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import pytest
@@ -18,12 +19,10 @@ def test_create_rule(client):
 
 
 def test_webhook_matching_rule(client):
-    # 1. Create rule
     client.post(
         "/rules", json={"keyword": "PRICE", "dm_message": "Price list..."}
     )
 
-    # 2. Send webhook
     payload = {
         "event_id": "evt_test_001",
         "event_type": "comment.created",
@@ -59,11 +58,9 @@ def test_webhook_duplicate_event_id(client):
         },
     }
 
-    # First send
     res1 = client.post("/webhook", json=payload)
     assert res1.status_code == 200
 
-    # Second send with same event_id
     res2 = client.post("/webhook", json=payload)
     assert res2.status_code == 200
     assert res2.json()["status"] == "duplicate_event_ignored"
@@ -96,7 +93,6 @@ def test_webhook_duplicate_rule_user_suppression(client):
     res1 = client.post("/webhook", json=payload1)
     assert res1.json()["deliveries_created"] == 1
 
-    # Second comment from same user for same rule
     res2 = client.post("/webhook", json=payload2)
     assert res2.json()["deliveries_created"] == 0
 
@@ -162,3 +158,29 @@ def test_webhook_hmac_enforcement(client):
     assert res2.status_code == 401
 
     settings.VERIFY_WEBHOOK_SIGNATURE = False
+
+
+def test_concurrent_duplicate_deliveries(temp_db):
+    """Verifies SQLite UNIQUE constraint prevents concurrent duplicate delivery creation."""
+    created1 = temp_db.create_delivery(
+        delivery_id="del_c1",
+        rule_id="r1",
+        recipient_user_id="u_concurrent",
+        comment_id="c1",
+        idempotency_key="rule:r1:user:u_concurrent",
+        message="msg",
+    )
+    assert created1 is True
+
+    created2 = temp_db.create_delivery(
+        delivery_id="del_c2",
+        rule_id="r1",
+        recipient_user_id="u_concurrent",
+        comment_id="c2",
+        idempotency_key="rule:r1:user:u_concurrent",
+        message="msg",
+    )
+    assert created2 is False
+
+    stats = temp_db.get_stats()
+    assert stats["duplicates_blocked"] == 1
