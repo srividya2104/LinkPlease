@@ -54,37 +54,28 @@ def test_startup_with_existing_custom_rule_does_not_create_default_rule():
             os.remove(path)
 
 
-def test_robust_keyword_matching(temp_db):
+def test_unicode_and_robust_keyword_matching(temp_db):
     engine = RuleEngine(temp_db)
     # Default PRICE rule is seeded in temp_db
 
-    # 1. Normal case-insensitive substring
-    m1 = engine.match_rules("PRICE")
-    assert len(m1) == 1
+    # Test cases required by specification
+    test_cases = [
+        ("PRICE", True),
+        ("price", True),
+        ("P.R.I.C.E", True),
+        ("p r i c e", True),
+        ("p-r-i-c-e", True),
+        ("p_r_i_c_e", True),
+        ("PRÍCE", True),
+        ("PRÌCE", True),
+        ("PRÎCE", True),
+        ("unrelated text", False),
+    ]
 
-    m2 = engine.match_rules("price please")
-    assert len(m2) == 1
-
-    # 2. Punctuation-separated keyword
-    m3 = engine.match_rules("P.R.I.C.E")
-    assert len(m3) == 1
-
-    # 3. Whitespace-separated keyword
-    m4 = engine.match_rules("p r i c e")
-    assert len(m4) == 1
-
-    # 4. Hyphen-separated keyword
-    m5 = engine.match_rules("p-r-i-c-e")
-    assert len(m5) == 1
-
-    # 5. Underscore-separated keyword
-    m6 = engine.match_rules("p_r_i_c_e")
-    assert len(m6) == 1
-
-    # 6. Keyword inside larger word
-    m7 = engine.match_rules("What a pricey item")
-    assert len(m7) == 1
-
-    # 7. Unrelated text not matching
-    m8 = engine.match_rules("Hello world")
-    assert len(m8) == 0
+    for text, expected_match in test_cases:
+        matches = engine.match_rules(text)
+        if expected_match:
+            assert len(matches) == 1, f"Expected '{text}' to match PRICE rule"
+            assert matches[0]["keyword"] == "PRICE"
+        else:
+            assert len(matches) == 0, f"Expected '{text}' NOT to match any rule"

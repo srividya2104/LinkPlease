@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+import unicodedata
 import uuid
 from app.database import Database
 
@@ -19,7 +20,11 @@ class RuleEngine:
 
     @staticmethod
     def _clean_str(s: str) -> str:
-        return "".join(c for c in s.lower() if c.isalnum())
+        if not s:
+            return ""
+        nfkd = unicodedata.normalize("NFKD", s.lower())
+        ascii_text = "".join(c for c in nfkd if not unicodedata.combining(c))
+        return "".join(c for c in ascii_text if c.isalnum())
 
     def match_rules(self, text: str) -> List[Dict[str, Any]]:
         if not text:
@@ -39,7 +44,7 @@ class RuleEngine:
                 matched.append(rule)
                 continue
 
-            # 2. Normalized alphanumeric match (removes spaces, dots, hyphens, underscores)
+            # 2. Normalized alphanumeric match (removes accents, spaces, dots, hyphens, underscores)
             if kw_clean and kw_clean in text_clean:
                 matched.append(rule)
                 continue
